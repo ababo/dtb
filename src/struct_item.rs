@@ -4,6 +4,7 @@ use core::str::from_utf8;
 
 use super::common::*;
 
+/// DTB structure item.
 #[derive(Debug, PartialEq)]
 pub enum StructItem<'a> {
     BeginNode { name: &'a str },
@@ -12,6 +13,7 @@ pub enum StructItem<'a> {
 }
 
 impl<'a> StructItem<'a> {
+    /// Returns true if the structure item is BeginNode.
     pub fn is_begin_node(&self) -> bool {
         match self {
             StructItem::BeginNode { .. } => true,
@@ -19,6 +21,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns true if the structure item is Property.
     pub fn is_property(&self) -> bool {
         match self {
             StructItem::Property { .. } => true,
@@ -26,6 +29,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns name for BeginNode or Property structure items.
     pub fn name(&self) -> Result<&'a str> {
         match self {
             StructItem::BeginNode { name } => Ok(name),
@@ -34,6 +38,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns node name for BeginNode structure items.
     pub fn node_name(&self) -> Result<&'a str> {
         match self {
             StructItem::BeginNode { name } => {
@@ -43,6 +48,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns unit address for BeginNode structure items.
     pub fn unit_address(&self) -> Result<&'a str> {
         match self {
             StructItem::BeginNode { name } => {
@@ -57,6 +63,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns value for Property structure items.
     pub fn value(&self) -> Result<&'a [u8]> {
         match self {
             StructItem::Property { value, .. } => Ok(value),
@@ -64,6 +71,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns string value for Property structure items.
     pub fn value_str(&self) -> Result<&'a str> {
         let value = self.value()?;
         let len = value.len();
@@ -85,6 +93,7 @@ impl<'a> StructItem<'a> {
         }
     }
 
+    /// Returns string list value for Property structure items.
     pub fn value_str_list<'b>(
         &self,
         buf: &'b mut [u8],
@@ -101,6 +110,7 @@ impl<'a> StructItem<'a> {
         Ok(&buf[..i])
     }
 
+    /// Returns integer list value for Property structure items.
     #[allow(clippy::cast_ptr_alignment)]
     pub fn value_u32_list<'b>(&self, buf: &'b mut [u8]) -> Result<&'b [u32]> {
         let value = self.value()?;
