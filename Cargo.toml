@@ -1,7 +1,11 @@
 [package]
-name = "dtb"
-version = "0.1.0"
 authors = ["Simon Prykhodko <semion.ababo@gmail.com>"]
+description = "Device tree blob manipulation"
 edition = "2018"
+license = "MIT"
+name = "dtb"
+readme = "README.md"
+repository = "https://github.com/ababo/dtb"
+version = "0.1.0"
 
 [dependencies]
