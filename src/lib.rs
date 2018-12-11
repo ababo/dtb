@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), no_std)]
+
 mod common;
 mod dtb_format;
 mod dtb_reader;
