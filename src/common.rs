@@ -45,7 +45,7 @@ pub enum Error {
     UnalignedStruct,
     /// Given blob is smaller than DTB-header.
     UnexpectedEndOfBlob,
-    /// Structure block doesn't end with DTB_END token.
+    /// Structure block doesn't end with END-token.
     UnexpectedEndOfStruct,
     /// Unsupported last compatible version.
     UnsupportedCompVersion,

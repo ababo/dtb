@@ -4,17 +4,17 @@ use core::slice::from_raw_parts;
 use core::str::from_utf8;
 
 use super::common::*;
-use super::dtb_format::*;
+use super::format::*;
 use super::struct_item::*;
 
 /// Iterator for reserved memory entries.
 #[derive(Clone, Debug)]
-pub struct DtbReservedMemEntries<'a> {
+pub struct ReservedMemEntries<'a> {
     reserved_mem: &'a [ReservedMemEntry],
     index: usize,
 }
 
-impl<'a> Iterator for DtbReservedMemEntries<'a> {
+impl<'a> Iterator for ReservedMemEntries<'a> {
     type Item = ReservedMemEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -32,26 +32,25 @@ impl<'a> Iterator for DtbReservedMemEntries<'a> {
     }
 }
 
-impl<'a> FusedIterator for DtbReservedMemEntries<'a> {}
+impl<'a> FusedIterator for ReservedMemEntries<'a> {}
 
 /// Iterator for structure items.
 #[derive(Clone, Debug)]
-pub struct DtbStructItems<'a> {
+pub struct StructItems<'a> {
     struct_block: &'a [u8],
     strings_block: &'a [u8],
     offset: usize,
 }
 
-const DTB_TOKEN_SIZE: usize = 4;
+const TOKEN_SIZE: usize = 4;
 
-impl<'a> DtbStructItems<'a> {
+impl<'a> StructItems<'a> {
     fn set_offset(&mut self, offset: usize) {
-        self.offset =
-            ((offset + DTB_TOKEN_SIZE - 1) / DTB_TOKEN_SIZE) * DTB_TOKEN_SIZE;
+        self.offset = ((offset + TOKEN_SIZE - 1) / TOKEN_SIZE) * TOKEN_SIZE;
     }
 
     fn read_begin_node(&mut self) -> Result<StructItem<'a>> {
-        let offset = self.offset + DTB_TOKEN_SIZE;
+        let offset = self.offset + TOKEN_SIZE;
         for (i, chr) in (&self.struct_block[offset..]).iter().enumerate() {
             if *chr != 0 {
                 continue;
@@ -77,13 +76,13 @@ impl<'a> DtbStructItems<'a> {
 
     #[allow(clippy::cast_ptr_alignment)]
     fn read_property(&mut self) -> Result<StructItem<'a>> {
-        let mut offset = self.offset + DTB_TOKEN_SIZE;
-        let desc_size = size_of::<DtbPropertyDesc>();
+        let mut offset = self.offset + TOKEN_SIZE;
+        let desc_size = size_of::<PropertyDesc>();
         self.assert_enough_struct(offset, desc_size)?;
 
         let desc_be = unsafe {
-            &*((&self.struct_block[offset..]).as_ptr()
-                as *const DtbPropertyDesc) as &DtbPropertyDesc
+            &*((&self.struct_block[offset..]).as_ptr() as *const PropertyDesc)
+                as &PropertyDesc
         };
         offset += desc_size;
 
@@ -116,33 +115,36 @@ impl<'a> DtbStructItems<'a> {
     #[allow(clippy::cast_ptr_alignment)]
     pub fn next_item(&mut self) -> Result<StructItem<'a>> {
         loop {
-            self.assert_enough_struct(self.offset, DTB_TOKEN_SIZE)?;
+            self.assert_enough_struct(self.offset, TOKEN_SIZE)?;
 
             let token = u32::from_be(unsafe {
                 *((&self.struct_block[self.offset..]).as_ptr() as *const u32)
             });
 
-            if token == DTB_NOP {
-                self.offset += DTB_TOKEN_SIZE;
+            if token == TOK_NOP {
+                self.offset += TOKEN_SIZE;
                 continue;
             }
 
             return match token {
-                DTB_BEGIN_NODE => self.read_begin_node(),
-                DTB_PROPERTY => self.read_property(),
-                DTB_END_NODE => {
-                    self.offset += DTB_TOKEN_SIZE;
+                TOK_BEGIN_NODE => self.read_begin_node(),
+                TOK_PROPERTY => self.read_property(),
+                TOK_END_NODE => {
+                    self.offset += TOKEN_SIZE;
                     Ok(StructItem::EndNode)
                 }
-                DTB_END => Err(Error::NoMoreStructItems),
+                TOK_END => Err(Error::NoMoreStructItems),
                 _ => Err(Error::BadStructToken),
             };
         }
     }
 
     /// Returns a structure path iterator for a given path.
-    pub fn find<'b>(&self, path: &'b str) -> DtbStructPathItems<'a, 'b> {
-        DtbStructPathItems {
+    pub fn path_struct_items<'b>(
+        &self,
+        path: &'b str,
+    ) -> PathStructItems<'a, 'b> {
+        PathStructItems {
             error: None,
             iter: self.clone(),
             path: PathSplit::new(path),
@@ -151,7 +153,7 @@ impl<'a> DtbStructItems<'a> {
     }
 }
 
-impl<'a> Iterator for DtbStructItems<'a> {
+impl<'a> Iterator for StructItems<'a> {
     type Item = StructItem<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -162,7 +164,7 @@ impl<'a> Iterator for DtbStructItems<'a> {
     }
 }
 
-impl<'a> FusedIterator for DtbStructItems<'a> {}
+impl<'a> FusedIterator for StructItems<'a> {}
 
 #[derive(Clone, Debug)]
 struct PathSplit<'a> {
@@ -227,19 +229,17 @@ impl<'a> PathSplit<'a> {
 
 /// Iterator for structure items with a given path.
 #[derive(Clone, Debug)]
-pub struct DtbStructPathItems<'a, 'b> {
+pub struct PathStructItems<'a, 'b> {
     error: Option<Error>,
-    iter: DtbStructItems<'a>,
+    iter: StructItems<'a>,
     path: PathSplit<'b>,
     level: usize,
 }
 
-impl<'a, 'b> DtbStructPathItems<'a, 'b> {
-    /// Advances the iterator and returns the next structure item with a given
-    /// path or error.
-    pub fn next_match(
-        &mut self,
-    ) -> Result<(StructItem<'a>, DtbStructItems<'a>)> {
+impl<'a, 'b> PathStructItems<'a, 'b> {
+    /// Advances the iterator and returns a next structure item for a given
+    /// path (with a corresponding StructItems-iterator) or error.
+    pub fn next_item(&mut self) -> Result<(StructItem<'a>, StructItems<'a>)> {
         if self.error != None {
             return Err(self.error.unwrap());
         }
@@ -277,46 +277,46 @@ impl<'a, 'b> DtbStructPathItems<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Iterator for DtbStructPathItems<'a, 'b> {
-    type Item = (StructItem<'a>, DtbStructItems<'a>);
+impl<'a, 'b> Iterator for PathStructItems<'a, 'b> {
+    type Item = (StructItem<'a>, StructItems<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.next_match() {
+        match self.next_item() {
             Ok(item) => Some(item),
             Err(_) => None,
         }
     }
 }
 
-impl<'a, 'b> FusedIterator for DtbStructPathItems<'a, 'b> {}
+impl<'a, 'b> FusedIterator for PathStructItems<'a, 'b> {}
 
 /// DTB blob reader.
 #[derive(Debug)]
-pub struct DtbReader<'a> {
+pub struct Reader<'a> {
     reserved_mem: &'a [ReservedMemEntry],
     struct_block: &'a [u8],
     strings_block: &'a [u8],
 }
 
-impl<'a> DtbReader<'a> {
+impl<'a> Reader<'a> {
     #[allow(clippy::cast_ptr_alignment)]
-    fn get_header(blob: &'a [u8]) -> Result<DtbHeader> {
+    fn get_header(blob: &'a [u8]) -> Result<Header> {
         if blob.len() < 4 {
             return Err(Error::BadMagic);
         }
 
         let be_header =
-            unsafe { &*(blob.as_ptr() as *const DtbHeader) as &DtbHeader };
+            unsafe { &*(blob.as_ptr() as *const Header) as &Header };
 
         if u32::from_be(be_header.magic) != DTB_MAGIC {
             return Err(Error::BadMagic);
         }
 
-        if blob.len() < size_of::<DtbHeader>() {
+        if blob.len() < size_of::<Header>() {
             return Err(Error::UnexpectedEndOfBlob);
         }
 
-        let header = DtbHeader {
+        let header = Header {
             magic: DTB_MAGIC,
             total_size: u32::from_be(be_header.total_size),
             struct_offset: u32::from_be(be_header.struct_offset),
@@ -333,7 +333,7 @@ impl<'a> DtbReader<'a> {
             return Err(Error::BadVersion);
         }
 
-        if header.last_comp_version != DTB_COMP_VERSION {
+        if header.last_comp_version != COMP_VERSION {
             return Err(Error::UnsupportedCompVersion);
         }
 
@@ -347,7 +347,7 @@ impl<'a> DtbReader<'a> {
     #[allow(clippy::cast_ptr_alignment)]
     fn get_reserved_mem(
         blob: &'a [u8],
-        header: &DtbHeader,
+        header: &Header,
     ) -> Result<&'a [ReservedMemEntry]> {
         let entry_size = size_of::<ReservedMemEntry>();
         if header.reserved_mem_offset + entry_size as u32 > header.struct_offset
@@ -377,10 +377,7 @@ impl<'a> DtbReader<'a> {
         Ok(&reserved[..index.unwrap()])
     }
 
-    fn get_struct_block(
-        blob: &'a [u8],
-        header: &DtbHeader,
-    ) -> Result<&'a [u8]> {
+    fn get_struct_block(blob: &'a [u8], header: &Header) -> Result<&'a [u8]> {
         if header.struct_offset % 4 != 0 || header.struct_size % 4 != 0 {
             return Err(Error::UnalignedStruct);
         }
@@ -393,10 +390,7 @@ impl<'a> DtbReader<'a> {
         Ok(&blob[offset..offset + header.struct_size as usize])
     }
 
-    fn get_strings_block(
-        blob: &'a [u8],
-        header: &DtbHeader,
-    ) -> Result<&'a [u8]> {
+    fn get_strings_block(blob: &'a [u8], header: &Header) -> Result<&'a [u8]> {
         if header.strings_offset + header.strings_size > header.total_size {
             return Err(Error::OverlappingStrings);
         }
@@ -411,25 +405,25 @@ impl<'a> DtbReader<'a> {
             return Err(Error::UnalignedBlob);
         }
 
-        let header = DtbReader::get_header(blob)?;
-        Ok(DtbReader::<'a> {
-            reserved_mem: DtbReader::get_reserved_mem(blob, &header)?,
-            struct_block: DtbReader::get_struct_block(blob, &header)?,
-            strings_block: DtbReader::get_strings_block(blob, &header)?,
+        let header = Reader::get_header(blob)?;
+        Ok(Reader::<'a> {
+            reserved_mem: Reader::get_reserved_mem(blob, &header)?,
+            struct_block: Reader::get_struct_block(blob, &header)?,
+            strings_block: Reader::get_strings_block(blob, &header)?,
         })
     }
 
     /// Returns a reserved memory entry iterator.
-    pub fn reserved_mem_entries(&self) -> DtbReservedMemEntries<'a> {
-        DtbReservedMemEntries::<'a> {
+    pub fn reserved_mem_entries(&self) -> ReservedMemEntries<'a> {
+        ReservedMemEntries::<'a> {
             reserved_mem: self.reserved_mem,
             index: 0,
         }
     }
 
     /// Returns a structure item iterator.
-    pub fn struct_items(&self) -> DtbStructItems<'a> {
-        DtbStructItems::<'a> {
+    pub fn struct_items(&self) -> StructItems<'a> {
+        StructItems::<'a> {
             struct_block: self.struct_block,
             strings_block: self.strings_block,
             offset: 0,
@@ -456,18 +450,18 @@ mod tests {
         buf.push(0);
         file.read_to_end(&mut buf).unwrap();
         assert_eq!(
-            DtbReader::read(&buf.as_slice()[1..]).unwrap_err(),
+            Reader::read(&buf.as_slice()[1..]).unwrap_err(),
             Error::UnalignedBlob
         );
     }
 
-    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<DtbReader<'a>> {
+    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<Reader<'a>> {
         let path = Path::new(file!()).parent().unwrap().join("test_dtb");
         let filename = path.join(String::from(name) + ".dtb");
         let mut file = File::open(filename).unwrap();
         buf.resize(0, 0);
         file.read_to_end(buf).unwrap();
-        DtbReader::read(buf.as_slice())
+        Reader::read(buf.as_slice())
     }
 
     macro_rules! test_read_dtb {
@@ -511,14 +505,14 @@ mod tests {
         assert!(!iter.next().is_some());
     }
 
-    fn assert_node<'a>(iter: &mut DtbStructItems<'a>, name: &str) {
+    fn assert_node<'a>(iter: &mut StructItems<'a>, name: &str) {
         let item = iter.next_item().unwrap();
         assert!(item.is_begin_node());
         assert_eq!(item.name().unwrap(), name);
     }
 
     fn assert_str_property<'a>(
-        iter: &mut DtbStructItems<'a>,
+        iter: &mut StructItems<'a>,
         name: &str,
         value: &str,
     ) {
@@ -529,7 +523,7 @@ mod tests {
     }
 
     fn assert_str_list_property<'a>(
-        iter: &mut DtbStructItems<'a>,
+        iter: &mut StructItems<'a>,
         name: &str,
         value: &[&str],
     ) {
@@ -541,7 +535,7 @@ mod tests {
     }
 
     fn assert_u32_list_property<'a>(
-        iter: &mut DtbStructItems<'a>,
+        iter: &mut StructItems<'a>,
         name: &str,
         value: &[u32],
     ) {
@@ -657,26 +651,26 @@ mod tests {
             .unwrap()
             .struct_items();
 
-        let mut iter = root.find("/foo");
-        assert_eq!(iter.next_match().unwrap_err(), Error::OutOfParentNode);
-        assert_eq!(iter.next_match().unwrap_err(), Error::OutOfParentNode);
+        let mut iter = root.path_struct_items("/foo");
+        assert_eq!(iter.next_item().unwrap_err(), Error::OutOfParentNode);
+        assert_eq!(iter.next_item().unwrap_err(), Error::OutOfParentNode);
     }
 
-    fn assert_not_found<'a>(iter: &DtbStructItems<'a>, path: &str) {
-        let mut iter = iter.find(path);
-        let err = iter.next_match().unwrap_err();
+    fn assert_not_found<'a>(iter: &StructItems<'a>, path: &str) {
+        let mut iter = iter.path_struct_items(path);
+        let err = iter.next_item().unwrap_err();
         assert!(
             err == Error::NoMoreStructItems || err == Error::OutOfParentNode
         );
     }
 
     fn assert_nodes_found<'a>(
-        iter: &DtbStructItems<'a>,
+        iter: &StructItems<'a>,
         path: &str,
         expected_names: &[&str],
     ) {
         let mut index = 0;
-        for (item, _) in iter.find(path) {
+        for (item, _) in iter.path_struct_items(path) {
             assert!(item.is_begin_node());
             assert_eq!(item.name().unwrap(), expected_names[index]);
             index += 1;
@@ -685,12 +679,12 @@ mod tests {
     }
 
     fn assert_properties_found<'a>(
-        iter: &DtbStructItems<'a>,
+        iter: &StructItems<'a>,
         path: &str,
         expected_values: &[&str],
     ) {
         let mut index = 0;
-        for (item, _) in iter.find(path) {
+        for (item, _) in iter.path_struct_items(path) {
             assert_eq!(item.value_str().unwrap(), expected_values[index]);
             index += 1;
         }
@@ -718,22 +712,22 @@ mod tests {
         assert_properties_found(&root, "/foo/bar", &["1", "4"]);
         assert_properties_found(&root, "/foo/foo/bar", &["2", "3", "5", "6"]);
 
-        let (_, iter) = root.find("/").next().unwrap();
+        let (_, iter) = root.path_struct_items("/").next().unwrap();
         assert_not_found(&iter, "/foo");
         assert_nodes_found(&iter, "foo", &["foo@1", "foo@4"]);
 
-        let mut iter = root.find("/foo");
-        let (_, iter2) = iter.next_match().unwrap();
+        let mut iter = root.path_struct_items("/foo");
+        let (_, iter2) = iter.next_item().unwrap();
         assert_not_found(&iter2, "/foo");
         assert_nodes_found(&iter2, "foo", &["foo@2", "foo@3"]);
         assert_properties_found(&iter2, "foo/bar", &["2", "3"]);
 
-        let (_, iter2) = iter.next_match().unwrap();
+        let (_, iter2) = iter.next_item().unwrap();
         assert_not_found(&iter2, "/foo");
         assert_nodes_found(&iter2, "foo", &["foo@5", "foo@6"]);
         assert_properties_found(&iter2, "foo/bar", &["5", "6"]);
 
-        assert_eq!(iter.next_match().unwrap_err(), Error::NoMoreStructItems);
+        assert_eq!(iter.next_item().unwrap_err(), Error::NoMoreStructItems);
 
         assert_properties_found(&root, "/foo/foo/bar", &["2", "3", "5", "6"]);
     }
