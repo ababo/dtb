@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
 mod common;
-mod format;
+mod internal;
 mod reader;
 mod struct_item;
 

@@ -4,7 +4,7 @@ use core::slice::from_raw_parts;
 use core::str::from_utf8;
 
 use super::common::*;
-use super::format::*;
+use super::internal::*;
 use super::struct_item::*;
 
 /// Iterator for reserved memory entries.

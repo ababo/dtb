@@ -1,3 +1,7 @@
+use core::mem::align_of;
+
+use super::common::*;
+
 pub const DTB_MAGIC: u32 = 0xD00D_FEED;
 pub const COMP_VERSION: u32 = 16;
 
@@ -25,4 +29,18 @@ pub struct Header {
 pub struct PropertyDesc {
     pub value_size: u32,
     pub name_offset: u32,
+}
+
+pub fn align_buf<'a, T>(buf: &'a mut [u8]) -> Result<&'a mut [u8]> {
+    let off = buf.as_ptr() as usize % align_of::<T>();
+    if off == 0 {
+        return Ok(buf);
+    }
+
+    let inc = align_of::<T>() - off;
+    if buf.len() < inc {
+        return Err(Error::BufferTooSmall);
+    }
+
+    Ok(&mut buf[inc..])
 }

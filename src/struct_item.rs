@@ -3,6 +3,7 @@ use core::slice::from_raw_parts_mut;
 use core::str::from_utf8;
 
 use super::common::*;
+use super::internal::*;
 
 /// DTB structure item.
 #[derive(Debug, PartialEq)]
@@ -84,13 +85,12 @@ impl<'a> StructItem<'a> {
         }
     }
 
-    fn transmute_buf<T>(buf: &mut [u8]) -> &mut [T] {
-        unsafe {
-            from_raw_parts_mut(
-                buf.as_ptr() as *mut T,
-                buf.len() / size_of::<T>(),
-            )
-        }
+    unsafe fn transmute_buf<T>(buf: &mut [u8]) -> Result<&mut [T]> {
+        let buf = align_buf::<T>(buf)?;
+        Ok(from_raw_parts_mut(
+            buf.as_ptr() as *mut T,
+            buf.len() / size_of::<T>(),
+        ))
     }
 
     /// Returns string list value for Property structure items.
@@ -99,7 +99,7 @@ impl<'a> StructItem<'a> {
         buf: &'b mut [u8],
     ) -> Result<&'b [&'a str]> {
         let mut i = 0;
-        let buf = StructItem::transmute_buf(buf);
+        let buf = unsafe { StructItem::transmute_buf(buf)? };
         for part in self.value_str()?.split('\0') {
             if i >= buf.len() {
                 return Err(Error::BufferTooSmall);
@@ -120,7 +120,7 @@ impl<'a> StructItem<'a> {
         }
 
         let len = value.len() / 4;
-        let buf = StructItem::transmute_buf(buf);
+        let buf = unsafe { StructItem::transmute_buf(buf)? };
         if buf.len() < len {
             return Err(Error::BufferTooSmall);
         }
@@ -254,36 +254,53 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_value_str_list() {
-        let mut buf = [0; size_of::<&str>() * 2];
-        let mut small_buf = [0; size_of::<&str>()];
-        assert_value_str!(value_str_list, buf);
-        assert_eq!(
-            StructItem::Property {
-                name: "property",
-                value: "part1\0part2\0".as_bytes(),
-            }
-            .value_str_list(&mut small_buf)
-            .unwrap_err(),
-            Error::BufferTooSmall
-        );
-        assert_eq!(
-            StructItem::Property {
-                name: "property",
-                value: "part1\0part2\0".as_bytes(),
-            }
-            .value_str_list(&mut buf)
-            .unwrap(),
-            &["part1", "part2"]
-        );
+    macro_rules! aligned_buf {
+        ($name:ident, $array:expr) => {
+            let mut tmp = $array;
+            let mut $name = unsafe {
+                from_raw_parts_mut::<u8>(
+                    tmp.as_mut_ptr() as *mut u8,
+                    core::mem::size_of_val(&tmp),
+                )
+            };
+        };
     }
 
     #[test]
+    #[allow(unused_mut)]
+    fn test_value_str_list() {
+        aligned_buf!(buf, [""; 2]);
+        assert_value_str!(value_str_list, buf);
+
+        let prop = StructItem::Property {
+            name: "property",
+            value: "part1\0part2\0".as_bytes(),
+        };
+
+        aligned_buf!(tmp, [""; 3]);
+        let len = tmp.len();
+        let mut unaligned_buf =
+            &mut tmp[size_of::<usize>() - 1..len - size_of::<usize>() - 1];
+        assert_eq!(
+            prop.value_str_list(&mut unaligned_buf).unwrap_err(),
+            Error::BufferTooSmall
+        );
+
+        aligned_buf!(small_buf, [""; 1]);
+        assert_eq!(
+            prop.value_str_list(&mut small_buf).unwrap_err(),
+            Error::BufferTooSmall
+        );
+
+        assert_eq!(prop.value_str_list(&mut buf).unwrap(), &["part1", "part2"]);
+    }
+
+    #[test]
+    #[allow(unused_mut)]
     fn test_value_u32_list() {
-        let mut buf = [0; 4 * 3];
-        let mut small_buf = [0; 4 * 2];
+        aligned_buf!(buf, [0u32; 3]);
         assert_value!(value_u32_list, buf);
+
         assert_eq!(
             StructItem::Property {
                 name: "property",
@@ -293,6 +310,7 @@ mod tests {
             .unwrap_err(),
             Error::BadU32List
         );
+
         assert_eq!(
             StructItem::Property {
                 name: "property",
@@ -302,24 +320,27 @@ mod tests {
             .unwrap(),
             &[]
         );
+
+        let prop = StructItem::Property {
+            name: "property",
+            value: &[0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3],
+        };
+
+        aligned_buf!(tmp, [0u32; 4]);
+        let len = tmp.len();
+        let mut unaligned_buf = &mut tmp[1..len - 1];
         assert_eq!(
-            StructItem::Property {
-                name: "property",
-                value: &[0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3],
-            }
-            .value_u32_list(&mut small_buf)
-            .unwrap_err(),
+            prop.value_u32_list(&mut unaligned_buf).unwrap_err(),
             Error::BufferTooSmall
         );
+
+        aligned_buf!(small_buf, [0u32; 2]);
         assert_eq!(
-            StructItem::Property {
-                name: "property",
-                value: &[0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3],
-            }
-            .value_u32_list(&mut buf)
-            .unwrap(),
-            &[1, 2, 3]
+            prop.value_u32_list(&mut small_buf).unwrap_err(),
+            Error::BufferTooSmall
         );
+
+        assert_eq!(prop.value_u32_list(&mut buf).unwrap(), &[1, 2, 3]);
     }
 
     fn assert_begin_node_accessor<'a>(
