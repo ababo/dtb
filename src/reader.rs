@@ -692,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find() {
+    fn test_path_struct_items() {
         let mut buf = Vec::new();
         let root = read_dtb(&mut buf, "sample2").unwrap().struct_items();
 

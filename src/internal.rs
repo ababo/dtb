@@ -44,3 +44,21 @@ pub fn align_buf<'a, T>(buf: &'a mut [u8]) -> Result<&'a mut [u8]> {
 
     Ok(&mut buf[inc..])
 }
+
+#[cfg(test)]
+#[macro_use]
+mod tests {
+    #[macro_export]
+    macro_rules! aligned_buf {
+        ($name:ident, $array:expr) => {
+            let mut tmp = $array;
+            #[allow(unused_mut)]
+            let mut $name = unsafe {
+                core::slice::from_raw_parts_mut::<u8>(
+                    tmp.as_mut_ptr() as *mut u8,
+                    core::mem::size_of_val(&tmp),
+                )
+            };
+        };
+    }
+}

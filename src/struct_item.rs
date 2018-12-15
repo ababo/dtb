@@ -254,20 +254,7 @@ mod tests {
         );
     }
 
-    macro_rules! aligned_buf {
-        ($name:ident, $array:expr) => {
-            let mut tmp = $array;
-            let mut $name = unsafe {
-                from_raw_parts_mut::<u8>(
-                    tmp.as_mut_ptr() as *mut u8,
-                    core::mem::size_of_val(&tmp),
-                )
-            };
-        };
-    }
-
     #[test]
-    #[allow(unused_mut)]
     fn test_value_str_list() {
         aligned_buf!(buf, [""; 2]);
         assert_value_str!(value_str_list, buf);
@@ -296,7 +283,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_mut)]
     fn test_value_u32_list() {
         aligned_buf!(buf, [0u32; 3]);
         assert_value!(value_u32_list, buf);
