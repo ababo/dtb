@@ -127,7 +127,7 @@ impl<'a> StructItem<'a> {
 
         for (i, val) in buf.iter_mut().enumerate().take(len) {
             *val = u32::from_be(unsafe {
-                *(value.as_ptr().offset(4 * i as isize) as *const u32)
+                *(value.as_ptr().add(4 * i as usize) as *const u32)
             });
         }
 

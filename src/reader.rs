@@ -362,7 +362,7 @@ impl<'a> Reader<'a> {
         let reserved_max_size =
             (header.struct_offset - header.reserved_mem_offset) as usize;
         let reserved = unsafe {
-            let ptr = blob.as_ptr().offset(header.reserved_mem_offset as isize)
+            let ptr = blob.as_ptr().add(header.reserved_mem_offset as usize)
                 as *const ReservedMemEntry;
             from_raw_parts(ptr, reserved_max_size / entry_size)
         };
