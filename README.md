@@ -40,3 +40,8 @@ println!(
     prop.value_u32_list(&mut buf)
 );
 ```
+
+To run a test sample execute:
+```sh
+cargo run --example dump src/test_dtb/sample.dtb
+```
