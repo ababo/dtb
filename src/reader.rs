@@ -343,6 +343,13 @@ impl<'a> Reader<'a> {
             return Err(Error::BadTotalSize);
         }
 
+        if header.total_size < header.struct_offset
+            || header.total_size < header.strings_offset
+            || header.total_size < header.reserved_mem_offset
+        {
+            return Err(Error::BadTotalSize)
+        }
+
         Ok(header)
     }
 
@@ -364,6 +371,7 @@ impl<'a> Reader<'a> {
         let reserved_max_size =
             (header.struct_offset - header.reserved_mem_offset) as usize;
         let reserved = unsafe {
+            // SAFETY: we checked this index during header parsing. It is also properly aligned.
             let ptr = blob.as_ptr().add(header.reserved_mem_offset as usize)
                 as *const ReservedMemEntry;
             from_raw_parts(ptr, reserved_max_size / entry_size)
