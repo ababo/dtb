@@ -339,8 +339,17 @@ impl<'a> Reader<'a> {
             return Err(Error::UnsupportedCompVersion);
         }
 
-        if header.total_size as usize != blob.len() {
+        if header.total_size != blob.len() as u32
+            || header.total_size as usize != blob.len()
+        {
             return Err(Error::BadTotalSize);
+        }
+
+        if header.total_size < header.struct_offset
+            || header.total_size < header.strings_offset
+            || header.total_size < header.reserved_mem_offset
+        {
+            return Err(Error::BadTotalSize)
         }
 
         Ok(header)
@@ -352,7 +361,7 @@ impl<'a> Reader<'a> {
         header: &Header,
     ) -> Result<&'a [ReservedMemEntry]> {
         let entry_size = size_of::<ReservedMemEntry>();
-        if header.reserved_mem_offset + entry_size as u32 > header.struct_offset
+        if header.struct_offset.checked_sub(entry_size as u32) < Some(header.reserved_mem_offset)
         {
             return Err(Error::OverlappingReservedMem);
         }
@@ -364,6 +373,7 @@ impl<'a> Reader<'a> {
         let reserved_max_size =
             (header.struct_offset - header.reserved_mem_offset) as usize;
         let reserved = unsafe {
+            // SAFETY: we checked this index during header parsing. It is also properly aligned.
             let ptr = blob.as_ptr().add(header.reserved_mem_offset as usize)
                 as *const ReservedMemEntry;
             from_raw_parts(ptr, reserved_max_size / entry_size)
@@ -384,7 +394,7 @@ impl<'a> Reader<'a> {
             return Err(Error::UnalignedStruct);
         }
 
-        if header.struct_offset + header.struct_size > header.strings_offset {
+        if header.strings_offset.checked_sub(header.struct_size) < Some(header.struct_offset) {
             return Err(Error::OverlappingStruct);
         }
 
@@ -393,7 +403,7 @@ impl<'a> Reader<'a> {
     }
 
     fn get_strings_block(blob: &'a [u8], header: &Header) -> Result<&'a [u8]> {
-        if header.strings_offset + header.strings_size > header.total_size {
+        if header.total_size.checked_sub(header.strings_size) < Some(header.strings_offset) {
             return Err(Error::OverlappingStrings);
         }
 
@@ -733,4 +743,7 @@ mod tests {
 
         assert_properties_found(&root, "/foo/foo/bar", &["2", "3", "5", "6"]);
     }
+
+    // Regression test for a prior unsafety issue: #5
+    test_read_dtb!(test_bad_reserved_mem_offset, BadTotalSize);
 }
