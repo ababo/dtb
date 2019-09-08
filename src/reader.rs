@@ -741,4 +741,7 @@ mod tests {
 
         assert_properties_found(&root, "/foo/foo/bar", &["2", "3", "5", "6"]);
     }
+
+    // Regression test for a prior unsafety issue: #5
+    test_read_dtb!(test_bad_reserved_mem_offset, BadTotalSize);
 }
