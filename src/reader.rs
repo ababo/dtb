@@ -304,17 +304,19 @@ impl<'a> Reader<'a> {
         if blob.len() < 4 {
             return Err(Error::BadMagic);
         }
+        
+        let be_header = blob.as_ptr() as *const Header;
+        let be_magic = unsafe { (*be_header).magic };
 
-        let be_header =
-            unsafe { &*(blob.as_ptr() as *const Header) as &Header };
-
-        if u32::from_be(be_header.magic) != DTB_MAGIC {
+        if u32::from_be(be_magic) != DTB_MAGIC {
             return Err(Error::BadMagic);
         }
 
         if blob.len() < size_of::<Header>() {
             return Err(Error::UnexpectedEndOfBlob);
         }
+
+        let be_header = unsafe { &*be_header };
 
         let header = Header {
             magic: DTB_MAGIC,
