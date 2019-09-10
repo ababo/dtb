@@ -96,23 +96,16 @@ impl<'a> StructItems<'a> {
             .get(name_offset..)
             .ok_or(Error::UnexpectedEndOfBlob)?;
 
-        for (i, chr) in string_start.iter().enumerate()
-        {
-            if *chr != 0 {
-                continue;
-            }
-            return match from_utf8(
-                &self.strings_block[name_offset..name_offset + i],
-            ) {
-                Ok(name) => {
-                    self.set_offset(offset);
-                    Ok(StructItem::Property { name, value })
-                }
-                Err(err) => Err(Error::BadStrEncoding(err)),
-            };
-        }
+        let string_chars = string_start
+            .split(|&ch| ch == 0)
+            .next()
+            .ok_or(Error::BadPropertyName)?;
 
-        Err(Error::BadPropertyName)
+        let name = from_utf8(string_chars)
+            .map_err(Error::BadStrEncoding)?;
+        self.set_offset(offset);
+
+        Ok(StructItem::Property { name, value })
     }
 
     /// Advances the iterator and returns the next structure item or error.
