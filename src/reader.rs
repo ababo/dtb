@@ -67,7 +67,7 @@ impl<'a> StructItems<'a> {
     }
 
     fn assert_enough_struct(&self, offset: usize, size: usize) -> Result<()> {
-        if self.struct_block.len() < offset + size {
+        if self.struct_block.len().checked_sub(size) < Some(offset) {
             Err(Error::UnexpectedEndOfStruct)
         } else {
             Ok(())
@@ -92,23 +92,20 @@ impl<'a> StructItems<'a> {
         offset += value_size;
 
         let name_offset = u32::from_be(desc_be.name_offset) as usize;
-        for (i, chr) in (&self.strings_block[name_offset..]).iter().enumerate()
-        {
-            if *chr != 0 {
-                continue;
-            }
-            return match from_utf8(
-                &self.strings_block[name_offset..name_offset + i],
-            ) {
-                Ok(name) => {
-                    self.set_offset(offset);
-                    Ok(StructItem::Property { name, value })
-                }
-                Err(err) => Err(Error::BadStrEncoding(err)),
-            };
-        }
+        let string_start = self.strings_block
+            .get(name_offset..)
+            .ok_or(Error::UnexpectedEndOfBlob)?;
 
-        Err(Error::BadPropertyName)
+        let string_chars = string_start
+            .split(|&ch| ch == 0)
+            .next()
+            .ok_or(Error::BadPropertyName)?;
+
+        let name = from_utf8(string_chars)
+            .map_err(Error::BadStrEncoding)?;
+        self.set_offset(offset);
+
+        Ok(StructItem::Property { name, value })
     }
 
     /// Advances the iterator and returns the next structure item or error.

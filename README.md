@@ -45,3 +45,17 @@ To run a test sample execute:
 ```sh
 cargo run --example dump src/test_dtb/sample.dtb
 ```
+
+## Fuzzing instructions
+
+The reader (and methods of read items) can be fuzzed with
+[`cargo-fuzz`/`libfuzzer`] which can be installed as `cargo install
+cargo-fuzz`. Note that the coverage is not yet complete but provides a
+straightforward harness.  The baseline corpus is the directory of tests is
+`src/test_dtb`. Note that this command will require a nightly compiler.
+
+```
+cargo fuzz run reader src/test_dtb
+```
+
+[`cargo-fuzz`/`libfuzzer`]: https://github.com/rust-fuzz/cargo-fuzz
