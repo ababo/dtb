@@ -6,6 +6,6 @@ license = "MIT"
 name = "dtb"
 readme = "README.md"
 repository = "https://github.com/ababo/dtb"
-version = "0.1.2"
+version = "0.1.3"
 
 [dependencies]
