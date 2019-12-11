@@ -339,12 +339,6 @@ impl<'a> Reader<'a> {
             return Err(Error::UnsupportedCompVersion);
         }
 
-        if header.total_size != blob.len() as u32
-            || header.total_size as usize != blob.len()
-        {
-            return Err(Error::BadTotalSize);
-        }
-
         if header.total_size < header.struct_offset
             || header.total_size < header.strings_offset
             || header.total_size < header.reserved_mem_offset
@@ -423,6 +417,36 @@ impl<'a> Reader<'a> {
         }
 
         let header = Reader::get_header(blob)?;
+
+        // Additionally validate the header against known file size.
+        if header.total_size != blob.len() as u32
+            || header.total_size as usize != blob.len()
+        {
+            return Err(Error::BadTotalSize);
+        }
+
+        Ok(Reader::<'a> {
+            reserved_mem: Reader::get_reserved_mem(blob, &header)?,
+            struct_block: Reader::get_struct_block(blob, &header)?,
+            strings_block: Reader::get_strings_block(blob, &header)?,
+        })
+    }
+
+    /// Reads a DTB blob given its memory address and returns a corresponding reader.
+    /// # Safety
+    /// Directly accesses memory it does not own. May return objects aliasing other objects.
+    /// May return memory out of accessible boundaries.
+    pub unsafe fn read_from_address(addr: usize) -> Result<Self> {
+        if addr % size_of::<u64>() != 0 {
+            return Err(Error::UnalignedBlob);
+        }
+        let blob =
+            core::slice::from_raw_parts(addr as *const u8, size_of::<Header>());
+        let header = Reader::get_header(blob)?;
+        let blob = core::slice::from_raw_parts(
+            addr as *const u8,
+            header.total_size as usize,
+        );
         Ok(Reader::<'a> {
             reserved_mem: Reader::get_reserved_mem(blob, &header)?,
             struct_block: Reader::get_struct_block(blob, &header)?,
