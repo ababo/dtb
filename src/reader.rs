@@ -92,16 +92,19 @@ impl<'a> StructItems<'a> {
         offset += value_size;
 
         let name_offset = u32::from_be(desc_be.name_offset) as usize;
-        let string_start = self.strings_block
+        let string_start = self
+            .strings_block
             .get(name_offset..)
             .ok_or(Error::UnexpectedEndOfBlob)?;
 
-        let string_chars = string_start
-            .split(|&ch| ch == 0)
-            .next()
+        let pos = string_start
+            .get(1..)
+            .ok_or(Error::BadPropertyName)?
+            .iter()
+            .position(|&ch| ch == 0)
             .ok_or(Error::BadPropertyName)?;
 
-        let name = from_utf8(string_chars)
+        let name = from_utf8(&string_start[..pos + 1])
             .map_err(Error::BadStrEncoding)?;
         self.set_offset(offset);
 
@@ -301,7 +304,7 @@ impl<'a> Reader<'a> {
         if blob.len() < 4 {
             return Err(Error::BadMagic);
         }
-        
+
         let be_header = blob.as_ptr() as *const Header;
         let be_magic = unsafe { (*be_header).magic };
 
@@ -346,7 +349,7 @@ impl<'a> Reader<'a> {
             || header.total_size < header.strings_offset
             || header.total_size < header.reserved_mem_offset
         {
-            return Err(Error::BadTotalSize)
+            return Err(Error::BadTotalSize);
         }
 
         Ok(header)
@@ -358,7 +361,8 @@ impl<'a> Reader<'a> {
         header: &Header,
     ) -> Result<&'a [ReservedMemEntry]> {
         let entry_size = size_of::<ReservedMemEntry>();
-        if header.struct_offset.checked_sub(entry_size as u32) < Some(header.reserved_mem_offset)
+        if header.struct_offset.checked_sub(entry_size as u32)
+            < Some(header.reserved_mem_offset)
         {
             return Err(Error::OverlappingReservedMem);
         }
@@ -391,7 +395,9 @@ impl<'a> Reader<'a> {
             return Err(Error::UnalignedStruct);
         }
 
-        if header.strings_offset.checked_sub(header.struct_size) < Some(header.struct_offset) {
+        if header.strings_offset.checked_sub(header.struct_size)
+            < Some(header.struct_offset)
+        {
             return Err(Error::OverlappingStruct);
         }
 
@@ -400,7 +406,9 @@ impl<'a> Reader<'a> {
     }
 
     fn get_strings_block(blob: &'a [u8], header: &Header) -> Result<&'a [u8]> {
-        if header.total_size.checked_sub(header.strings_size) < Some(header.strings_offset) {
+        if header.total_size.checked_sub(header.strings_size)
+            < Some(header.strings_offset)
+        {
             return Err(Error::OverlappingStrings);
         }
 
