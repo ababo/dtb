@@ -41,6 +41,8 @@ println!(
 );
 ```
 
+To read DTB directly from a memory address use `Reader::read_from_address()`.
+
 To run a test sample execute:
 ```sh
 cargo run --example dump src/test_dtb/sample.dtb

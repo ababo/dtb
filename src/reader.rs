@@ -105,8 +105,8 @@ impl<'a> StructItems<'a> {
             .position(|&ch| ch == 0)
             .ok_or(Error::BadPropertyName)?;
 
-        let name = from_utf8(&string_start[..pos + 1])
-            .map_err(Error::BadStrEncoding)?;
+        let name =
+            from_utf8(&string_start[..=pos]).map_err(Error::BadStrEncoding)?;
         self.set_offset(offset);
 
         Ok(StructItem::Property { name, value })
@@ -302,6 +302,10 @@ pub struct Reader<'a> {
 impl<'a> Reader<'a> {
     #[allow(clippy::cast_ptr_alignment)]
     fn get_header(blob: &'a [u8]) -> Result<Header> {
+        if blob.as_ptr() as usize % size_of::<u64>() != 0 {
+            return Err(Error::UnalignedBlob);
+        }
+
         if blob.len() < 4 {
             return Err(Error::BadMagic);
         }
@@ -319,7 +323,7 @@ impl<'a> Reader<'a> {
 
         let be_header = unsafe { &*be_header };
 
-        let header = Header {
+        Ok(Header {
             magic: DTB_MAGIC,
             total_size: u32::from_be(be_header.total_size),
             struct_offset: u32::from_be(be_header.struct_offset),
@@ -330,28 +334,7 @@ impl<'a> Reader<'a> {
             bsp_cpu_id: u32::from_be(be_header.bsp_cpu_id),
             strings_size: u32::from_be(be_header.strings_size),
             struct_size: u32::from_be(be_header.struct_size),
-        };
-
-        if header.version < header.last_comp_version {
-            return Err(Error::BadVersion);
-        }
-
-        if header.last_comp_version != COMP_VERSION {
-            return Err(Error::UnsupportedCompVersion);
-        }
-
-        if u32::try_from(blob.len()) != Ok(header.total_size) {
-            return Err(Error::BadTotalSize);
-        }
-
-        if header.total_size < header.struct_offset
-            || header.total_size < header.strings_offset
-            || header.total_size < header.reserved_mem_offset
-        {
-            return Err(Error::BadTotalSize);
-        }
-
-        Ok(header)
+        })
     }
 
     #[allow(clippy::cast_ptr_alignment)]
@@ -373,7 +356,8 @@ impl<'a> Reader<'a> {
         let reserved_max_size =
             (header.struct_offset - header.reserved_mem_offset) as usize;
         let reserved = unsafe {
-            // SAFETY: we checked this index during header parsing. It is also properly aligned.
+            // SAFETY: we checked this index during header parsing. It is also
+            // properly aligned.
             let ptr = blob.as_ptr().add(header.reserved_mem_offset as usize)
                 as *const ReservedMemEntry;
             from_raw_parts(ptr, reserved_max_size / entry_size)
@@ -417,16 +401,44 @@ impl<'a> Reader<'a> {
 
     /// Reads a given DTB blob and returns a corresponding reader.
     pub fn read(blob: &'a [u8]) -> Result<Self> {
-        if blob.as_ptr() as usize % size_of::<u64>() != 0 {
-            return Err(Error::UnalignedBlob);
+        let header = Reader::get_header(blob)?;
+
+        if header.version < header.last_comp_version {
+            return Err(Error::BadVersion);
         }
 
-        let header = Reader::get_header(blob)?;
+        if header.last_comp_version != COMP_VERSION {
+            return Err(Error::UnsupportedCompVersion);
+        }
+
+        if header.total_size < header.struct_offset
+            || header.total_size < header.strings_offset
+            || header.total_size < header.reserved_mem_offset
+        {
+            return Err(Error::BadTotalSize);
+        }
+
+        if u32::try_from(blob.len()) != Ok(header.total_size) {
+            return Err(Error::BadTotalSize);
+        }
+
         Ok(Reader::<'a> {
             reserved_mem: Reader::get_reserved_mem(blob, &header)?,
             struct_block: Reader::get_struct_block(blob, &header)?,
             strings_block: Reader::get_strings_block(blob, &header)?,
         })
+    }
+
+    /// Reads DTB from a given address and returns a corresponding reader.
+    pub unsafe fn read_from_address(addr: usize) -> Result<Self> {
+        let blob = from_raw_parts(addr as *const u8, size_of::<Header>());
+        let header = Reader::get_header(blob)?;
+
+        let blob = core::slice::from_raw_parts(
+            addr as *const u8,
+            header.total_size as usize,
+        );
+        Reader::read(blob)
     }
 
     /// Returns a reserved memory entry iterator.
@@ -471,12 +483,16 @@ mod tests {
         );
     }
 
-    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<Reader<'a>> {
+    fn read_dtb_vec(buf: &mut Vec<u8>, name: &str) {
         let path = Path::new(file!()).parent().unwrap().join("test_dtb");
         let filename = path.join(String::from(name) + ".dtb");
         let mut file = File::open(filename).unwrap();
         buf.resize(0, 0);
         file.read_to_end(buf).unwrap();
+    }
+
+    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<Reader<'a>> {
+        read_dtb_vec(buf, name);
         Reader::read(buf.as_slice())
     }
 
@@ -750,4 +766,20 @@ mod tests {
 
     // Regression test for a prior unsafety issue: #5
     test_read_dtb!(test_bad_reserved_mem_offset, BadTotalSize);
+
+    #[test]
+    fn test_read_from_address() {
+        let mut buf = Vec::new();
+        read_dtb_vec(&mut buf, "sample2");
+
+        unsafe {
+            let root = Reader::read_from_address(buf.as_ptr() as usize)
+                .unwrap()
+                .struct_items();
+
+            // Let's skip thorough testing for now, since the function shares
+            // the same implementation.
+            assert_nodes_found(&root, "/foo", &["foo@1", "foo@4"]);
+        }
+    }
 }
