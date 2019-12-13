@@ -1,3 +1,4 @@
+use core::convert::TryFrom;
 use core::iter::FusedIterator;
 use core::mem::size_of;
 use core::slice::from_raw_parts;
@@ -339,9 +340,7 @@ impl<'a> Reader<'a> {
             return Err(Error::UnsupportedCompVersion);
         }
 
-        if header.total_size != blob.len() as u32
-            || header.total_size as usize != blob.len()
-        {
+        if u32::try_from(blob.len()) != Ok(header.total_size) {
             return Err(Error::BadTotalSize);
         }
 
