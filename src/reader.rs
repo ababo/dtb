@@ -104,8 +104,8 @@ impl<'a> StructItems<'a> {
             .position(|&ch| ch == 0)
             .ok_or(Error::BadPropertyName)?;
 
-        let name = from_utf8(&string_start[..pos + 1])
-            .map_err(Error::BadStrEncoding)?;
+        let name =
+            from_utf8(&string_start[..=pos]).map_err(Error::BadStrEncoding)?;
         self.set_offset(offset);
 
         Ok(StructItem::Property { name, value })
