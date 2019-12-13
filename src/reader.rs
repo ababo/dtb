@@ -494,13 +494,25 @@ mod tests {
         );
     }
 
-    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<Reader<'a>> {
+    fn read_from_file<'a>(buf: &'a mut Vec<u8>, name: &str) {
         let path = Path::new(file!()).parent().unwrap().join("test_dtb");
         let filename = path.join(String::from(name) + ".dtb");
         let mut file = File::open(filename).unwrap();
         buf.resize(0, 0);
         file.read_to_end(buf).unwrap();
+    }
+
+    fn read_dtb<'a>(buf: &'a mut Vec<u8>, name: &str) -> Result<Reader<'a>> {
+        read_from_file(buf, name);
         Reader::read(buf.as_slice())
+    }
+
+    fn read_dtb_mem<'a>(
+        buf: &'a mut Vec<u8>,
+        name: &str,
+    ) -> Result<Reader<'a>> {
+        read_from_file(buf, name);
+        unsafe { Reader::read_from_address(buf.as_ptr() as *const u8 as usize) }
     }
 
     macro_rules! test_read_dtb {
@@ -509,6 +521,17 @@ mod tests {
             fn $fn_name() {
                 let mut buf = Vec::new();
                 let reader = read_dtb(&mut buf, &stringify!($fn_name)[5..]);
+                assert_eq!(reader.unwrap_err(), Error::$err);
+            }
+        };
+    }
+
+    macro_rules! test_read_dtb_mem {
+        ($fn_name:ident, $err:ident) => {
+            #[test]
+            fn $fn_name() {
+                let mut buf = Vec::new();
+                let reader = read_dtb_mem(&mut buf, &stringify!($fn_name)[9..]);
                 assert_eq!(reader.unwrap_err(), Error::$err);
             }
         };
@@ -526,6 +549,33 @@ mod tests {
     test_read_dtb!(test_unaligned_struct2, UnalignedStruct);
     test_read_dtb!(test_overlapping_struct, OverlappingStruct);
     test_read_dtb!(test_overlapping_strings, OverlappingStrings);
+
+    // Test that basic parsing from memory behaves the same.
+    test_read_dtb_mem!(test_mem_bad_magic, BadMagic);
+    test_read_dtb_mem!(test_mem_unexpected_end_of_blob, UnexpectedEndOfBlob);
+    test_read_dtb_mem!(test_mem_bad_version, BadVersion);
+    test_read_dtb_mem!(
+        test_mem_unsupported_comp_version,
+        UnsupportedCompVersion
+    );
+    test_read_dtb_mem!(test_mem_unaligned_reserved_mem, UnalignedReservedMem);
+    test_read_dtb_mem!(
+        test_mem_overlapping_reserved_mem,
+        OverlappingReservedMem
+    );
+    test_read_dtb_mem!(
+        test_mem_no_zero_reserved_mem_entry,
+        NoZeroReservedMemEntry
+    );
+    test_read_dtb_mem!(test_mem_unaligned_struct, UnalignedStruct);
+    test_read_dtb_mem!(test_mem_unaligned_struct2, UnalignedStruct);
+    test_read_dtb_mem!(test_mem_overlapping_struct, OverlappingStruct);
+    test_read_dtb_mem!(test_mem_overlapping_strings, OverlappingStrings);
+
+    // This validation is only available in read from file.
+    // When reading from memory the blob size is determined by header.total_size so
+    // this error code is impossible.
+    // test_read_dtb_mem!(test_mem_bad_total_size, BadTotalSize);
 
     #[test]
     fn test_reserved_mem() {
