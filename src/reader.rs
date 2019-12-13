@@ -419,9 +419,7 @@ impl<'a> Reader<'a> {
         let header = Reader::get_header(blob)?;
 
         // Additionally validate the header against known file size.
-        if header.total_size != blob.len() as u32
-            || header.total_size as usize != blob.len()
-        {
+        if header.total_size as usize != blob.len() {
             return Err(Error::BadTotalSize);
         }
 
