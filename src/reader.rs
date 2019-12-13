@@ -445,6 +445,12 @@ impl<'a> Reader<'a> {
             addr as *const u8,
             header.total_size as usize,
         );
+
+        // Additionally validate new-size memory blob against header size.
+        if blob.len() < size_of::<Header>() {
+            return Err(Error::UnexpectedEndOfBlob);
+        }
+
         Ok(Reader::<'a> {
             reserved_mem: Reader::get_reserved_mem(blob, &header)?,
             struct_block: Reader::get_struct_block(blob, &header)?,
